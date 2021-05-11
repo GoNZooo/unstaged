@@ -5,7 +5,6 @@ import qualified RIO.ByteString as ByteString
 import qualified RIO.ByteString.Lazy as LazyByteString
 import qualified RIO.Directory as Directory
 import qualified RIO.List as List
-import qualified System.Environment as Environment
 import System.IO (putStrLn)
 import qualified System.Process.Typed as Process
 
@@ -35,24 +34,29 @@ newtype WorkingDirectory = WorkingDirectory FilePath
 newtype CommandString = CommandString String
   deriving (Eq, Show)
 
-runMain :: IO ()
-runMain = do
-  arguments <- Environment.getArgs
-  case arguments of
-    [path] -> do
-      gitStatuses <- getGitStatuses path
-      let unstaged =
-            foldr
-              ( \status pathsSoFar -> case status of
-                  UnstagedChanges p -> p : pathsSoFar
-                  _otherwise -> pathsSoFar
-              )
-              []
-              gitStatuses
-              & List.sort
-      forM_ unstaged putStrLn
-    _anythingElse ->
-      error "Need a path to search"
+data Options = Options {path :: FilePath, statusType :: GitStatusType}
+
+data GitStatusType
+  = UnstagedStatus
+  | CleanStatus
+  | NoCommitsStatus
+
+runMain :: Options -> IO ()
+runMain Options {path, statusType} = do
+  gitStatuses <- getGitStatuses path
+  let repositories =
+        foldr
+          (folder statusType)
+          []
+          gitStatuses
+          & List.sort
+      folder UnstagedStatus (UnstagedChanges p) pathsSoFar = p : pathsSoFar
+      folder UnstagedStatus _otherwise pathsSoFar = pathsSoFar
+      folder NoCommitsStatus (NoCommits p) pathsSoFar = p : pathsSoFar
+      folder NoCommitsStatus _otherwise pathsSoFar = pathsSoFar
+      folder CleanStatus (Clean p) pathsSoFar = p : pathsSoFar
+      folder CleanStatus _otherwise pathsSoFar = pathsSoFar
+  forM_ repositories putStrLn
 
 getGitStatuses :: FilePath -> IO [GitStatus]
 getGitStatuses path = do
